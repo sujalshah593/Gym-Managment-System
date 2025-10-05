@@ -1,0 +1,785 @@
+"use client"
+import { db } from "../firebase.js"
+import { collection, getDocs, addDoc, deleteDoc, doc, setDoc, serverTimestamp } from "firebase/firestore"
+import { useState, useEffect } from "react"
+import { useRevenue } from "../Contexts/useRevenue.jsx"
+import {
+  Users,
+  CreditCard,
+  Bell,
+  Pill,
+  Apple,
+  Download,
+  Plus,
+  Edit,
+  Trash2,
+  DollarSign,
+  UserPlus,
+  BarChart3,
+  Settings,
+} from "lucide-react"
+
+export default function AdminDashboard() {
+  const { totalRevenue, memberCounts } = useRevenue();
+  const [members, setMembers] = useState([])
+  const [form, setForm] = useState({ name: "", email: "", package: "" })
+  const [editingId, setEditingId] = useState(null)
+  const [billForm, setBillForm] = useState({
+    memberId: "",
+    amount: "",
+    dueDate: "",
+  })
+  const [notifyForm, setNotifyForm] = useState({
+    memberId: "",
+    message: "",
+  })
+  const [supplements, setSupplements] = useState([])
+  const [supplementForm, setSupplementForm] = useState({
+    title: "",
+    description: "",
+    price: "",
+    imageUrl: "",
+  })
+  const [dietForm, setDietForm] = useState({
+    memberId: "",
+    dietUrl: "",
+  })
+  const [activeTab, setActiveTab] = useState("members")
+
+  const fetchMembers = async () => {
+    const snapshot = await getDocs(collection(db, "members"))
+    const list = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
+    setMembers(list)
+  }
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    if (!form.name || !form.email || !form.package) return
+    try {
+      if (editingId) {
+        const docRef = doc(db, "members", editingId)
+        await setDoc(docRef, { ...form }, { merge: true })
+        setEditingId(null)
+      } else {
+        await addDoc(collection(db, "members"), {
+          ...form,
+          joiningDate: new Date().toISOString(),
+        })
+      }
+      setForm({ name: "", email: "", package: "" })
+      fetchMembers()
+    } catch (err) {
+      console.error("Submit Error:", err.message)
+    }
+  }
+
+  const handleDelete = async (id) => {
+    await deleteDoc(doc(db, "members", id))
+    fetchMembers()
+  }
+
+  const handleCreateBill = async (e) => {
+    e.preventDefault()
+    const { memberId, amount, dueDate } = billForm
+    if (!memberId || !amount || !dueDate) return
+    try {
+      const selected = members.find((m) => m.id === memberId)
+      await addDoc(collection(db, "bills"), {
+        memberId,
+        memberName: selected.name,
+        amount: Number(amount),
+        dueDate,
+        status: "unpaid",
+        createdAt: new Date().toISOString(),
+      })
+      alert("Bill created!")
+      setBillForm({ memberId: "", amount: "", dueDate: "" })
+    } catch (err) {
+      console.error("Bill creation error:", err.message)
+    }
+  }
+
+  const handleSendNotification = async (e) => {
+    e.preventDefault()
+    const { memberId, message } = notifyForm
+    if (!memberId || !message) return
+    try {
+      await addDoc(collection(db, "notifications"), {
+        memberId,
+        message,
+        timestamp: serverTimestamp(),
+      })
+      alert("Notification sent!")
+      setNotifyForm({ memberId: "", message: "" })
+    } catch (err) {
+      console.error("Notification error:", err.message)
+    }
+  }
+
+  const downloadCSV = (data, filename) => {
+    if (!data || !data.length) return
+    const keys = Object.keys(data[0])
+    const csvContent = [keys.join(","), ...data.map((row) => keys.map((key) => `${row[key] || ""}`).join(","))].join(
+      "\n",
+    )
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement("a")
+    link.setAttribute("href", url)
+    link.setAttribute("download", filename)
+    link.click()
+  }
+
+  const exportMembers = async () => {
+    const snapshot = await getDocs(collection(db, "members"))
+    const memberData = snapshot.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data(),
+    }))
+    downloadCSV(memberData, "members_report.csv")
+  }
+
+  const exportBills = async () => {
+    const snapshot = await getDocs(collection(db, "bills"))
+    const billData = snapshot.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data(),
+    }))
+    downloadCSV(billData, "bills_report.csv")
+  }
+
+  const fetchSupplements = async () => {
+    const snap = await getDocs(collection(db, "supplements"))
+    const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+    setSupplements(list)
+  }
+
+  const handleAddSupplement = async (e) => {
+    e.preventDefault()
+    try {
+      await addDoc(collection(db, "supplements"), {
+        ...supplementForm,
+        price: Number(supplementForm.price),
+      })
+      setSupplementForm({ title: "", description: "", price: "", imageUrl: "" })
+      fetchSupplements()
+    } catch (err) {
+      console.error("Add Supplement Error:", err.message)
+    }
+  }
+
+  const deleteSupplement = async (id) => {
+    await deleteDoc(doc(db, "supplements", id))
+    fetchSupplements()
+  }
+
+  const handleAssignDiet = async (e) => {
+    e.preventDefault()
+    try {
+      const docRef = doc(db, "members", dietForm.memberId)
+      await setDoc(docRef, { dietUrl: dietForm.dietUrl }, { merge: true })
+      alert("Diet assigned!")
+      setDietForm({ memberId: "", dietUrl: "" })
+    } catch (err) {
+      console.error("Diet Assign Error:", err.message)
+    }
+  }
+
+  useEffect(() => {
+    fetchMembers()
+    fetchSupplements()
+  }, [])
+
+  return (
+    <div className="min-h-screen bg-black">
+      <div className="bg-gray-900 border-b border-gray-800">
+        <div className="px-6 py-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-3xl font-bold text-white">Gym Admin Dashboard</h1>
+              <p className="text-gray-300 mt-1">Manage your gym members, billing, and operations</p>
+            </div>
+            <div className="flex items-center gap-4">
+              <span className="inline-flex items-center px-4 py-2 rounded-full text-sm font-medium bg-amber-500 text-black">
+                <Users className="w-4 h-4 mr-2" />
+                {members.length} Members
+              </span>
+              <Settings className="w-6 h-6 text-amber-500" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Main Content */}
+      <div className="p-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+          <div className="bg-gray-900 rounded-xl border border-gray-800 shadow-xl overflow-hidden hover:border-amber-500 transition-colors">
+            <div className="flex items-center justify-between p-6 pb-2">
+              <h3 className="text-sm font-medium text-gray-300">Total Members</h3>
+              <Users className="w-5 h-5 text-amber-500" />
+            </div>
+            <div className="px-6 pb-6">
+              <div className="text-3xl font-bold text-white">{members.length}</div>
+              <p className="text-xs text-gray-400">Active gym members</p>
+            </div>
+          </div>
+
+          <div className="bg-gray-900 rounded-xl border border-gray-800 shadow-xl overflow-hidden hover:border-amber-500 transition-colors">
+            <div className="flex items-center justify-between p-6 pb-2">
+              <h3 className="text-sm font-medium text-gray-300">Supplements</h3>
+              <Pill className="w-5 h-5 text-amber-500" />
+            </div>
+            <div className="px-6 pb-6">
+              <div className="text-3xl font-bold text-white">{supplements.length}</div>
+              <p className="text-xs text-gray-400">Available products</p>
+            </div>
+          </div>
+
+          {/* <div className="bg-gray-900 rounded-xl border border-gray-800 shadow-xl overflow-hidden hover:border-amber-500 transition-colors">
+            <div className="flex items-center justify-between p-6 pb-2">
+              <h3 className="text-sm font-medium text-gray-300">Revenue</h3>
+              <DollarSign className="w-5 h-5 text-amber-500" />
+            </div>
+            <div className="px-6 pb-6">
+              <div className="text-3xl font-bold text-white">₹{totalRevenue.toLocaleString()}</div>
+              <p className="text-xs text-gray-400">From membership sales</p>
+              <div className="flex gap-2 mt-2">
+                {memberCounts.essential > 0 && (
+                  <span className="text-xs bg-gray-800 text-gray-300 px-2 py-1 rounded">
+                    Essential: {memberCounts.essential}
+                  </span>
+                )}
+                {memberCounts.elite > 0 && (
+                  <span className="text-xs bg-amber-500 text-black px-2 py-1 rounded">Elite: {memberCounts.elite}</span>
+                )}
+                {memberCounts.champion > 0 && (
+                  <span className="text-xs bg-gray-800 text-gray-300 px-2 py-1 rounded">
+                    Champion: {memberCounts.champion}
+                  </span>
+                )}
+              </div>
+            </div>
+          </div> */}
+
+          <div className="bg-gray-900 rounded-xl border border-gray-800 shadow-xl overflow-hidden hover:border-amber-500 transition-colors">
+            <div className="flex items-center justify-between p-6 pb-2">
+              <h3 className="text-sm font-medium text-gray-300">Growth</h3>
+              <BarChart3 className="w-5 h-5 text-amber-500" />
+            </div>
+            <div className="px-6 pb-6">
+              <div className="text-3xl font-bold text-white">+12%</div>
+              <p className="text-xs text-gray-400">From last month</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-6">
+          <div className="flex border-b border-gray-800 mb-6 bg-gray-900 rounded-t-xl p-2">
+            <button
+              onClick={() => setActiveTab("members")}
+              className={`flex items-center px-6 py-3 mr-2 text-sm font-medium rounded-lg transition-all ${
+                activeTab === "members"
+                  ? "text-black bg-amber-500 shadow-lg"
+                  : "text-gray-300 hover:text-amber-500 hover:bg-gray-800"
+              }`}
+            >
+              <Users className="w-4 h-4 mr-2" />
+              Members
+            </button>
+            <button
+              onClick={() => setActiveTab("billing")}
+              className={`flex items-center px-6 py-3 mr-2 text-sm font-medium rounded-lg transition-all ${
+                activeTab === "billing"
+                  ? "text-black bg-amber-500 shadow-lg"
+                  : "text-gray-300 hover:text-amber-500 hover:bg-gray-800"
+              }`}
+            >
+              <CreditCard className="w-4 h-4 mr-2" />
+              Billing
+            </button>
+            <button
+              onClick={() => setActiveTab("notifications")}
+              className={`flex items-center px-6 py-3 mr-2 text-sm font-medium rounded-lg transition-all ${
+                activeTab === "notifications"
+                  ? "text-black bg-amber-500 shadow-lg"
+                  : "text-gray-300 hover:text-amber-500 hover:bg-gray-800"
+              }`}
+            >
+              <Bell className="w-4 h-4 mr-2" />
+              Notifications
+            </button>
+            <button
+              onClick={() => setActiveTab("supplements")}
+              className={`flex items-center px-6 py-3 mr-2 text-sm font-medium rounded-lg transition-all ${
+                activeTab === "supplements"
+                  ? "text-black bg-amber-500 shadow-lg"
+                  : "text-gray-300 hover:text-amber-500 hover:bg-gray-800"
+              }`}
+            >
+              <Pill className="w-4 h-4 mr-2" />
+              Supplements
+            </button>
+            <button
+              onClick={() => setActiveTab("diet")}
+              className={`flex items-center px-6 py-3 mr-2 text-sm font-medium rounded-lg transition-all ${
+                activeTab === "diet"
+                  ? "text-black bg-amber-500 shadow-lg"
+                  : "text-gray-300 hover:text-amber-500 hover:bg-gray-800"
+              }`}
+            >
+              <Apple className="w-4 h-4 mr-2" />
+              Diet Plans
+            </button>
+          </div>
+
+          {/* Members Tab */}
+          {activeTab === "members" && (
+            <div>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div className="bg-gray-900 rounded-xl border border-gray-800 shadow-xl overflow-hidden">
+                  <div className="p-6 pb-0 border-b border-gray-800">
+                    <h3 className="text-xl font-bold text-white flex items-center gap-3">
+                      <UserPlus className="w-6 h-6 text-amber-500" />
+                      {editingId ? "Edit Member" : "Add New Member"}
+                    </h3>
+                    <p className="text-gray-400 mt-2">
+                      {editingId ? "Update member information" : "Add a new member to your gym"}
+                    </p>
+                  </div>
+                  <div className="p-6">
+                    <form onSubmit={handleSubmit} className="space-y-5">
+                      <div>
+                        <label htmlFor="name" className="block text-sm font-medium text-gray-300 mb-2">
+                          Full Name
+                        </label>
+                        <input
+                          id="name"
+                          type="text"
+                          placeholder="Enter member name"
+                          value={form.name}
+                          onChange={(e) => setForm({ ...form, name: e.target.value })}
+                          className="block w-full rounded-lg border border-gray-700 px-4 py-3 text-sm text-white bg-gray-800 shadow-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-colors"
+                        />
+                      </div>
+                      <div>
+                        <label htmlFor="email" className="block text-sm font-medium text-gray-300 mb-2">
+                          Email Address
+                        </label>
+                        <input
+                          id="email"
+                          type="email"
+                          placeholder="Enter email address"
+                          value={form.email}
+                          onChange={(e) => setForm({ ...form, email: e.target.value })}
+                          className="block w-full rounded-lg border border-gray-700 px-4 py-3 text-sm text-white bg-gray-800 shadow-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-colors"
+                        />
+                      </div>
+                      <div>
+                        <label htmlFor="package" className="block text-sm font-medium text-gray-300 mb-2">
+                          Membership Package
+                        </label>
+                        <input
+                          id="package"
+                          type="text"
+                          placeholder="e.g., Premium, Basic, VIP"
+                          value={form.package}
+                          onChange={(e) => setForm({ ...form, package: e.target.value })}
+                          className="block w-full rounded-lg border border-gray-700 px-4 py-3 text-sm text-white bg-gray-800 shadow-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-colors"
+                        />
+                      </div>
+                      <div className="flex gap-3">
+                        <button
+                          type="submit"
+                          className="inline-flex items-center justify-center rounded-lg font-medium text-sm transition-all px-6 py-3 bg-amber-500 text-black hover:bg-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 shadow-lg hover:shadow-xl"
+                        >
+                          <Plus className="w-4 h-4 mr-2" />
+                          {editingId ? "Update Member" : "Add Member"}
+                        </button>
+                        {editingId && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingId(null)
+                              setForm({ name: "", email: "", package: "" })
+                            }}
+                            className="inline-flex items-center justify-center rounded-lg font-medium text-sm transition-all px-6 py-3 bg-gray-800 border border-gray-700 text-gray-300 hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500"
+                          >
+                            Cancel Edit
+                          </button>
+                        )}
+                      </div>
+                    </form>
+                  </div>
+                </div>
+
+                <div className="bg-gray-900 rounded-xl border border-gray-800 shadow-xl overflow-hidden">
+                  <div className="p-6 pb-0 border-b border-gray-800">
+                    <h3 className="text-xl font-bold text-white flex items-center gap-3">
+                      <Download className="w-6 h-6 text-amber-500" />
+                      Export Reports
+                    </h3>
+                    <p className="text-gray-400 mt-2">Download member and billing data as CSV files</p>
+                  </div>
+                  <div className="p-6 space-y-4">
+                    <button
+                      onClick={exportMembers}
+                      className="inline-flex items-center justify-center rounded-lg font-medium text-sm transition-all px-6 py-3 bg-gray-800 border border-gray-700 text-gray-300 hover:bg-gray-700 hover:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500 w-full"
+                    >
+                      <Download className="w-4 h-4 mr-2" />
+                      Export Members Data
+                    </button>
+                    <button
+                      onClick={exportBills}
+                      className="inline-flex items-center justify-center rounded-lg font-medium text-sm transition-all px-6 py-3 bg-gray-800 border border-gray-700 text-gray-300 hover:bg-gray-700 hover:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500 w-full"
+                    >
+                      <Download className="w-4 h-4 mr-2" />
+                      Export Bills Data
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-gray-900 rounded-xl border border-gray-800 shadow-xl overflow-hidden mt-6">
+                <div className="p-6 pb-0 border-b border-gray-800">
+                  <h3 className="text-xl font-bold text-white">All Members ({members.length})</h3>
+                  <p className="text-gray-400 mt-1">Manage your gym members</p>
+                </div>
+                <div className="p-6">
+                  <div className="space-y-4">
+                    {members.length === 0 ? (
+                      <div className="text-center py-12 text-gray-400">
+                        <Users className="w-16 h-16 mx-auto mb-4 opacity-50" />
+                        <p className="text-lg">No members found. Add your first member above.</p>
+                      </div>
+                    ) : (
+                      members.map((member) => (
+                        <div
+                          key={member.id}
+                          className="flex items-center justify-between p-6 border border-gray-800 rounded-xl bg-gray-800 hover:border-amber-500 transition-colors"
+                        >
+                          <div className="flex-1">
+                            <h3 className="font-bold text-white text-lg">{member.name}</h3>
+                            <p className="text-gray-300 mt-1">{member.email}</p>
+                            <div className="flex items-center gap-3 mt-2">
+                              <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-amber-500 text-black">
+                                {member.package}
+                              </span>
+                              {member.joiningDate && (
+                                <span className="text-xs text-gray-400">
+                                  Joined: {new Date(member.joiningDate).toLocaleDateString()}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <button
+                              onClick={() => {
+                                setForm({ name: member.name, email: member.email, package: member.package })
+                                setEditingId(member.id)
+                              }}
+                              className="inline-flex items-center justify-center rounded-lg font-medium text-sm transition-all p-3 bg-gray-700 border border-gray-600 text-gray-300 hover:bg-gray-600 hover:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                            >
+                              <Edit className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => handleDelete(member.id)}
+                              className="inline-flex items-center justify-center rounded-lg font-medium text-sm transition-all p-3 bg-red-600 text-white hover:bg-red-500 focus:outline-none focus:ring-2 focus:ring-red-500 shadow-lg ml-4"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === "billing" && (
+            <div className="bg-gray-900 rounded-xl border border-gray-800 shadow-xl overflow-hidden">
+              <div className="p-6 pb-0 border-b border-gray-800">
+                <h3 className="text-xl font-bold text-white flex items-center gap-3">
+                  <CreditCard className="w-6 h-6 text-amber-500" />
+                  Create New Bill
+                </h3>
+                <p className="text-gray-400 mt-2">Generate bills for your members</p>
+              </div>
+              <div className="p-6">
+                <form onSubmit={handleCreateBill} className="space-y-5 max-w-md">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-2">Select Member</label>
+                    <select
+                      value={billForm.memberId}
+                      onChange={(e) => setBillForm({ ...billForm, memberId: e.target.value })}
+                      className="block w-full rounded-lg border border-gray-700 px-4 py-3 text-sm text-white bg-gray-800 shadow-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-colors"
+                    >
+                      <option value="">Choose a member</option>
+                      {members.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label htmlFor="amount" className="block text-sm font-medium text-gray-300 mb-2">
+                      Amount (₹)
+                    </label>
+                    <input
+                      id="amount"
+                      type="number"
+                      placeholder="Enter amount"
+                      value={billForm.amount}
+                      onChange={(e) => setBillForm({ ...billForm, amount: e.target.value })}
+                      className="block w-full rounded-lg border border-gray-700 px-4 py-3 text-sm text-white bg-gray-800 shadow-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-colors"
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="dueDate" className="block text-sm font-medium text-gray-300 mb-2">
+                      Due Date
+                    </label>
+                    <input
+                      id="dueDate"
+                      type="date"
+                      value={billForm.dueDate}
+                      onChange={(e) => setBillForm({ ...billForm, dueDate: e.target.value })}
+                      className="block w-full rounded-lg border border-gray-700 px-4 py-3 text-sm text-white bg-gray-800 shadow-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-colors"
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    className="inline-flex items-center justify-center rounded-lg font-medium text-sm transition-all px-6 py-3 bg-amber-500 text-black hover:bg-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-500 shadow-lg hover:shadow-xl"
+                  >
+                    <Plus className="w-4 h-4 mr-2" />
+                    Create Bill
+                  </button>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {activeTab === "notifications" && (
+            <div className="bg-gray-900 rounded-xl border border-gray-800 shadow-xl overflow-hidden">
+              <div className="p-6 pb-0 border-b border-gray-800">
+                <h3 className="text-xl font-bold text-white flex items-center gap-3">
+                  <Bell className="w-6 h-6 text-amber-500" />
+                  Send Notification
+                </h3>
+                <p className="text-gray-400 mt-2">Send messages to your members</p>
+              </div>
+              <div className="p-6">
+                <form onSubmit={handleSendNotification} className="space-y-5 max-w-md">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-2">Select Member</label>
+                    <select
+                      value={notifyForm.memberId}
+                      onChange={(e) => setNotifyForm({ ...notifyForm, memberId: e.target.value })}
+                      className="block w-full rounded-lg border border-gray-700 px-4 py-3 text-sm text-white bg-gray-800 shadow-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-colors"
+                    >
+                      <option value="">Choose a member</option>
+                      {members.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label htmlFor="message" className="block text-sm font-medium text-gray-300 mb-2">
+                      Message
+                    </label>
+                    <textarea
+                      id="message"
+                      placeholder="Enter your message"
+                      value={notifyForm.message}
+                      onChange={(e) => setNotifyForm({ ...notifyForm, message: e.target.value })}
+                      rows={4}
+                      className="block w-full rounded-lg border border-gray-700 px-4 py-3 text-sm text-white bg-gray-800 shadow-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-colors resize-vertical"
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    className="inline-flex items-center justify-center rounded-lg font-medium text-sm transition-all px-6 py-3 bg-amber-500 text-black hover:bg-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-500 shadow-lg hover:shadow-xl"
+                  >
+                    <Bell className="w-4 h-4 mr-2" />
+                    Send Notification
+                  </button>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {activeTab === "supplements" && (
+            <div>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div className="bg-gray-900 rounded-xl border border-gray-800 shadow-xl overflow-hidden">
+                  <div className="p-6 pb-0 border-b border-gray-800">
+                    <h3 className="text-xl font-bold text-white flex items-center gap-3">
+                      <Plus className="w-6 h-6 text-amber-500" />
+                      Add New Supplement
+                    </h3>
+                    <p className="text-gray-400 mt-2">Add supplements to your inventory</p>
+                  </div>
+                  <div className="p-6">
+                    <form onSubmit={handleAddSupplement} className="space-y-5">
+                      <div>
+                        <label htmlFor="title" className="block text-sm font-medium text-gray-300 mb-2">
+                          Product Title
+                        </label>
+                        <input
+                          id="title"
+                          type="text"
+                          placeholder="Enter product name"
+                          value={supplementForm.title}
+                          onChange={(e) => setSupplementForm({ ...supplementForm, title: e.target.value })}
+                          className="block w-full rounded-lg border border-gray-700 px-4 py-3 text-sm text-white bg-gray-800 shadow-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-colors"
+                        />
+                      </div>
+                      <div>
+                        <label htmlFor="description" className="block text-sm font-medium text-gray-300 mb-2">
+                          Description
+                        </label>
+                        <textarea
+                          id="description"
+                          placeholder="Enter product description"
+                          value={supplementForm.description}
+                          onChange={(e) => setSupplementForm({ ...supplementForm, description: e.target.value })}
+                          rows={3}
+                          className="block w-full rounded-lg border border-gray-700 px-4 py-3 text-sm text-white bg-gray-800 shadow-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-colors resize-vertical"
+                        />
+                      </div>
+                      <div>
+                        <label htmlFor="price" className="block text-sm font-medium text-gray-300 mb-2">
+                          Price (₹)
+                        </label>
+                        <input
+                          id="price"
+                          type="number"
+                          placeholder="Enter price"
+                          value={supplementForm.price}
+                          onChange={(e) => setSupplementForm({ ...supplementForm, price: e.target.value })}
+                          className="block w-full rounded-lg border border-gray-700 px-4 py-3 text-sm text-white bg-gray-800 shadow-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-colors"
+                        />
+                      </div>
+                      <div>
+                        <label htmlFor="imageUrl" className="block text-sm font-medium text-gray-300 mb-2">
+                          Image URL
+                        </label>
+                        <input
+                          id="imageUrl"
+                          type="url"
+                          placeholder="Enter image URL"
+                          value={supplementForm.imageUrl}
+                          onChange={(e) => setSupplementForm({ ...supplementForm, imageUrl: e.target.value })}
+                          className="block w-full rounded-lg border border-gray-700 px-4 py-3 text-sm text-white bg-gray-800 shadow-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-colors"
+                        />
+                      </div>
+                      <button
+                        type="submit"
+                        className="inline-flex items-center justify-center rounded-lg font-medium text-sm transition-all px-6 py-3 bg-amber-500 text-black hover:bg-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-500 shadow-lg hover:shadow-xl"
+                      >
+                        <Plus className="w-4 h-4 mr-2" />
+                        Add Supplement
+                      </button>
+                    </form>
+                  </div>
+                </div>
+
+                <div className="bg-gray-900 rounded-xl border border-gray-800 shadow-xl overflow-hidden">
+                  <div className="p-6 pb-0 border-b border-gray-800">
+                    <h3 className="text-xl font-bold text-white">Available Supplements ({supplements.length})</h3>
+                    <p className="text-gray-400 mt-1">Manage your supplement inventory</p>
+                  </div>
+                  <div className="p-6">
+                    <div className="space-y-4 max-h-96 overflow-y-auto">
+                      {supplements.length === 0 ? (
+                        <div className="text-center py-12 text-gray-400">
+                          <Pill className="w-16 h-16 mx-auto mb-4 opacity-50" />
+                          <p className="text-lg">No supplements found. Add your first supplement.</p>
+                        </div>
+                      ) : (
+                        supplements.map((s) => (
+                          <div
+                            key={s.id}
+                            className="flex items-center justify-between p-6 border border-gray-800 rounded-xl bg-gray-800 hover:border-amber-500 transition-colors"
+                          >
+                            <div className="flex-1">
+                              <h3 className="font-bold text-white text-lg">{s.title}</h3>
+                              <p className="text-gray-300 mt-1">{s.description}</p>
+                              <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-amber-500 text-black mt-2">
+                                ₹{s.price}
+                              </span>
+                            </div>
+                            <button
+                              onClick={() => deleteSupplement(s.id)}
+                              className="inline-flex items-center justify-center rounded-lg font-medium text-sm transition-all p-3 bg-red-600 text-white hover:bg-red-500 focus:outline-none focus:ring-2 focus:ring-red-500 shadow-lg ml-4"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === "diet" && (
+            <div className="bg-gray-900 rounded-xl border border-gray-800 shadow-xl overflow-hidden">
+              <div className="p-6 pb-0 border-b border-gray-800">
+                <h3 className="text-xl font-bold text-white flex items-center gap-3">
+                  <Apple className="w-6 h-6 text-amber-500" />
+                  Assign Diet Plan
+                </h3>
+                <p className="text-gray-400 mt-2">Assign personalized diet plans to members</p>
+              </div>
+              <div className="p-6">
+                <form onSubmit={handleAssignDiet} className="space-y-5 max-w-md">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-2">Select Member</label>
+                    <select
+                      value={dietForm.memberId}
+                      onChange={(e) => setDietForm({ ...dietForm, memberId: e.target.value })}
+                      className="block w-full rounded-lg border border-gray-700 px-4 py-3 text-sm text-white bg-gray-800 shadow-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-colors"
+                    >
+                      <option value="">Choose a member</option>
+                      {members.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label htmlFor="dietUrl" className="block text-sm font-medium text-gray-300 mb-2">
+                      Diet Plan PDF URL
+                    </label>
+                    <input
+                      id="dietUrl"
+                      type="url"
+                      placeholder="Enter PDF URL"
+                      value={dietForm.dietUrl}
+                      onChange={(e) => setDietForm({ ...dietForm, dietUrl: e.target.value })}
+                      className="block w-full rounded-lg border border-gray-700 px-4 py-3 text-sm text-white bg-gray-800 shadow-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-colors"
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    className="inline-flex items-center justify-center rounded-lg font-medium text-sm transition-all px-6 py-3 bg-amber-500 text-black hover:bg-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-500 shadow-lg hover:shadow-xl"
+                  >
+                    <Apple className="w-4 h-4 mr-2" />
+                    Assign Diet Plan
+                  </button>
+                </form>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
